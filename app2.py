@@ -34,33 +34,10 @@ st.markdown(
       gap:12px;
     }
 
-    .nav-left { display:flex; align-items:center; gap:12px; }
     .brand {
       display:flex; align-items:center; gap:10px;
       color:#fff; font-weight:800; font-size:16px;
     }
-    .nav-links { display:flex; align-items:center; gap:8px; justify-content:center; flex:1; }
-
-    /* pill-like nav items */
-    .nav-item {
-      color:#dfeee7;
-      padding:10px 16px;
-      border-radius:999px;
-      font-weight:700;
-      cursor:pointer;
-      background: transparent;
-      border: 1px solid rgba(255,255,255,0.04);
-      transition: all 150ms ease;
-    }
-    .nav-item:hover { transform: translateY(-2px); background: rgba(255,255,255,0.03); }
-    .nav-item-active {
-      background: white;
-      color: #b91c1c;
-      box-shadow: 0 8px 18px rgba(0,0,0,0.12);
-      transform: translateY(-2px);
-    }
-
-    /* right-most pill (like email pill) */
     .nav-pill-right {
       background: white;
       color: #0b3e2c;
@@ -77,10 +54,10 @@ st.markdown(
     .stButton>button {
       background: linear-gradient(90deg,#10b981,#047857) !important;
       color:white !important;
-      font-weight:800;
-      padding:12px 30px;
-      border-radius:12px;
-      font-size:18px;
+      font-weight:800 !important;
+      padding:12px 30px !important;
+      border-radius:12px !important;
+      font-size:18px !important;
     }
 
     /* output card */
@@ -104,15 +81,16 @@ def load_models():
     def try_load(path):
         if not os.path.exists(path):
             return None, f"NOT FOUND: {path}"
+        # Joblib first, pickle fallback; return clear combined message on failure
         try:
             return joblib.load(path), None
-        except Exception as e:
+        except Exception as ej:
             try:
                 import pickle
                 with open(path, 'rb') as f:
                     return pickle.load(f), None
-            except Exception as e2:
-                return None, f"LOAD ERROR {path}: joblib:{e} pickle:{e2}"
+            except Exception as ep:
+                return None, f"LOAD ERROR {path}: joblib_error={ej} pickle_error={ep}"
 
     paths = {
         'pollution_model': os.path.join(model_dir, 'rf_pollution_likely.pkl'),
@@ -122,7 +100,8 @@ def load_models():
     for k, p in paths.items():
         obj, err = try_load(p)
         out[k] = obj
-        if err: out['errors'].append(err)
+        if err:
+            out['errors'].append(err)
     return out
 
 models = load_models()
@@ -135,37 +114,33 @@ st.markdown('<div class="sub-title">Early warning and cause detection for health
 if 'selected_section' not in st.session_state:
     st.session_state['selected_section'] = 'Air Quality'
 
-# Create navbar layout
 def render_navbar():
-    # Outer container
+    # Render the pill container (visual background)
     st.markdown('<div class="nav-pill">', unsafe_allow_html=True)
-    # left brand
-    st.markdown('<div class="nav-left"><div class="brand">🌱 <span style="margin-left:6px">Green Air</span></div></div>', unsafe_allow_html=True)
 
-    # center links - we will create small buttons; clicking sets session_state
-    nav_cols = st.columns([1,1,1,0.6])  # last for right pill
+    # use columns so Streamlit buttons are inside the pill layout reliably
+    # layout: brand | btn1 | btn2 | btn3 | status
+    cols = st.columns([0.8, 1, 1, 1, 0.6])
+    with cols[0]:
+        st.markdown('<div class="brand">🌱 <span style="margin-left:6px">Green Air</span></div>', unsafe_allow_html=True)
+
     labels = ["Air Quality", "Meteorological Aspects", "Traffic Details"]
-    for i, label in enumerate(labels):
-        key = f"nav_btn_{i}"
-        # Render as normal Streamlit button; CSS will style it using the label text
-        is_active = (st.session_state['selected_section'] == label)
-        if is_active:
-            # show visually active button (we still use a normal button but clicking re-selects)
-            if st.button(label, key=key):
+    for i, label in enumerate(labels, start=1):
+        with cols[i]:
+            is_active = (st.session_state['selected_section'] == label)
+            # clicking sets the section
+            if st.button(label, key=f'nav_btn_{i}'):
                 st.session_state['selected_section'] = label
-            # apply active style by injecting JS-less CSS: add a small hack by writing a span next to it.
-            # Styling is handled by global CSS targeting button text; acceptable for most Streamlit versions.
-        else:
-            if st.button(label, key=key):
-                st.session_state['selected_section'] = label
+            # small visual cue for active: bold label (CSS controls button look)
+            if is_active:
+                st.markdown(f"<div style='margin-top:6px;font-weight:700;color:#fff;opacity:0.85'>{label}</div>", unsafe_allow_html=True)
 
-    # right small pill (status/email-like)
-    with st.container():
-        # simple text, not interactive
+    # status pill in last column
+    with cols[-1]:
         status_text = []
-        if models['pollution_model'] is not None:
+        if models.get('pollution_model') is not None:
             status_text.append("Model OK")
-        if models['source_model'] is not None:
+        if models.get('source_model') is not None:
             status_text.append("Source OK")
         status = " • ".join(status_text) if status_text else "Models missing"
         st.markdown(f'<div class="nav-pill-right">{status}</div>', unsafe_allow_html=True)
@@ -176,11 +151,9 @@ render_navbar()
 
 # ---------- Content card (centered). Show only subsections for selected section ----------
 st.markdown('<div class="content-card">', unsafe_allow_html=True)
-
 st.markdown(f"### {st.session_state['selected_section']}", unsafe_allow_html=True)
 
-# input variables (we keep them persisted by using keys)
-# Only render controls for the selected section — others hidden until clicked
+# Input controls by section
 if st.session_state['selected_section'] == 'Air Quality':
     c1, c2 = st.columns(2)
     with c1:
@@ -212,13 +185,10 @@ elif st.session_state['selected_section'] == 'Traffic Details':
         congestion = st.slider('Congestion Level (0.0 - 1.0)', 0.0, 1.0, 0.3, 0.01, key='cong')
         road_density = st.slider('Road Density (km/km²)', 0.0, 200.0, 8.0, 0.1, key='rd')
 
-# We still want the final prediction to use the combined set of feature values.
-# For features that might not have been displayed yet (because the user didn't click that section),
-# we attempt to read them from session_state or fill defaults.
+# read or default all features:
 def get_val(key, default):
     return st.session_state.get(key, default)
 
-# Read or default all features:
 pm25 = get_val('pm25', 75.0)
 pm10 = get_val('pm10', 120.0)
 no2 = get_val('no2', 40.0)
@@ -240,7 +210,7 @@ road_density = get_val('rd', 8.0)
 wind_map = {'N':0,'NE':1,'E':2,'SE':3,'S':4,'SW':5,'W':6,'NW':7}
 wind_dir = wind_map.get(wind_dir_choice, 0)
 
-# Build input dataframe
+# Build input dataframe (UI names)
 input_data = {
     'PM2.5': pm25, 'PM10': pm10, 'NO2': no2, 'SO2': so2, 'CO': co, 'O3': o3,
     'Temperature': temperature, 'Humidity': humidity, 'Wind_Speed': wind_speed, 'Wind_Direction': wind_dir,
@@ -260,6 +230,26 @@ c1, c2, c3 = st.columns([1, 0.4, 1])
 with c2:
     predict_clicked = st.button("🔮 Predict", key='predict')
 
+# ---------- Debug: show model load warnings and expected features ----------
+if models.get('errors'):
+    with st.expander("Model load warnings / errors (click to view)", expanded=False):
+        for e in models['errors']:
+            st.warning(e)
+
+with st.expander("Model expected feature names (debug)", expanded=False):
+    m = models.get('pollution_model')
+    if m is not None:
+        fn = getattr(m, 'feature_names_in_', None)
+        st.write("pollution_model.feature_names_in_:", list(fn) if fn is not None else "Not available")
+    else:
+        st.write("pollution_model: Not loaded")
+    m2 = models.get('source_model')
+    if m2 is not None:
+        fn2 = getattr(m2, 'feature_names_in_', None)
+        st.write("source_model.feature_names_in_:", list(fn2) if fn2 is not None else "Not available")
+    else:
+        st.write("source_model: Not loaded")
+
 # ---------- Output area ----------
 if predict_clicked:
     st.markdown('<div class="output-card">', unsafe_allow_html=True)
@@ -267,30 +257,82 @@ if predict_clicked:
 
     # helpers
     def align_features(X: pd.DataFrame, model):
+        """
+        Ensure X has the same columns (and ordering) as model.feature_names_in_ if available.
+        Attempt automatic name transformations to match model expectations:
+          - exact match
+          - replace spaces with underscores
+          - lower/upper case variants
+          - common typo fixes (basic)
+        """
         Xc = X.copy()
         if model is not None and hasattr(model, 'feature_names_in_'):
             expected = list(model.feature_names_in_)
+            # quick mapping: try to map X columns to expected columns
+            mapped = {}
+            avail = list(Xc.columns)
+            exp_set = set(expected)
+
+            # helper to generate candidate variants for a given input column name
+            def candidates(name):
+                name = str(name)
+                cand = [name, name.replace(' ', '_'), name.replace('_', ' '), name.lower(), name.upper(), name.title()]
+                cand += [name.replace(' ', '_').lower(), name.replace(' ', '_').upper()]
+                # fix common typo patterns (simple)
+                cand += [name.replace('SOil', 'Soil'), name.replace('Moiisture', 'Moisture'), name.replace('AirHumidity', 'Air_Humidity')]
+                # dedupe while preserving order
+                seen = set()
+                out = []
+                for c in cand:
+                    if c not in seen:
+                        seen.add(c)
+                        out.append(c)
+                return out
+
+            for col in avail:
+                found = None
+                for cand in candidates(col):
+                    # exact match to expected
+                    if cand in exp_set:
+                        found = cand
+                        break
+                # if not found, try matching after normalizing underscores/spaces and lower-case compare
+                if found is None:
+                    low_avail = col.replace(' ', '_').lower()
+                    for e in expected:
+                        if e.replace(' ', '_').lower() == low_avail:
+                            found = e
+                            break
+                if found:
+                    mapped[col] = found
+
+            # apply mapped renames
+            if mapped:
+                Xc = Xc.rename(columns=mapped)
+
+            # ensure all expected present; if missing add zeros
             for col in expected:
                 if col not in Xc.columns:
                     Xc[col] = 0.0
-            Xc = Xc[expected]
+
+            Xc = Xc[expected]  # reorder
         Xc = Xc.apply(pd.to_numeric, errors='coerce').fillna(0.0)
         return Xc
 
     def rule_based_reason(row):
         reasons = []
-        if row['Vehicle_Count'] > 3000 or row['NO2'] > 80 or row['CO'] > 2.5:
+        if row.get('Vehicle_Count', 0) > 3000 or row.get('NO2', 0) > 80 or row.get('CO', 0) > 2.5:
             reasons.append(('Vehicular Emission', [
-                f"Vehicle_Count = {int(row['Vehicle_Count'])}" if row['Vehicle_Count']>3000 else None,
-                f"NO2 = {row['NO2']:.1f} (high)" if row['NO2']>80 else None,
-                f"CO = {row['CO']:.2f} (high)" if row['CO']>2.5 else None
+                f"Vehicle_Count = {int(row['Vehicle_Count'])}" if row.get('Vehicle_Count', 0)>3000 else None,
+                f"NO2 = {row['NO2']:.1f} (high)" if row.get('NO2', 0)>80 else None,
+                f"CO = {row['CO']:.2f} (high)" if row.get('CO', 0)>2.5 else None
             ]))
-        if row['SO2'] > 50 or row['CO'] > 3.5:
+        if row.get('SO2', 0) > 50 or row.get('CO', 0) > 3.5:
             reasons.append(('Industrial Emission', [
-                f"SO2 = {row['SO2']:.1f} (high)" if row['SO2']>50 else None,
-                f"CO = {row['CO']:.2f} (very high)" if row['CO']>3.5 else None
+                f"SO2 = {row['SO2']:.1f} (high)" if row.get('SO2', 0)>50 else None,
+                f"CO = {row['CO']:.2f} (very high)" if row.get('CO', 0)>3.5 else None
             ]))
-        if row['PM2.5'] > 120 and row['Rainfall'] < 5 and row['Wind_Speed'] < 2:
+        if row.get('PM2.5', 0) > 120 and row.get('Rainfall', 0) < 5 and row.get('Wind_Speed', 0) < 2:
             reasons.append(('Dust / Poor Dispersion', [
                 f"PM2.5 = {row['PM2.5']:.1f} (very high)",
                 f"Rainfall = {row['Rainfall']:.1f} (low)",
@@ -299,9 +341,53 @@ if predict_clicked:
         if not reasons:
             reasons.append(('Low Pollution Source', [
                 "No major pollutant exceeded heuristic thresholds",
-                f"PM2.5 = {row['PM2.5']:.1f}, NO2 = {row['NO2']:.1f}, SO2 = {row['SO2']:.1f}"
+                f"PM2.5 = {row.get('PM2.5', 0):.1f}, NO2 = {row.get('NO2', 0):.1f}, SO2 = {row.get('SO2', 0):.1f}"
             ]))
         return reasons
+
+    def safe_decode_label(src_raw, le, src_model):
+        # Try LabelEncoder first, then classes_, then fallback mapping
+        if le is not None:
+            try:
+                arr = np.array([src_raw])
+                return le.inverse_transform(arr)[0]
+            except Exception:
+                # attempt alternative: find nearest match in le.classes_
+                try:
+                    classes = list(le.classes_)
+                    # if numeric index
+                    if isinstance(src_raw, (int, np.integer)):
+                        idx = int(src_raw)
+                        if 0 <= idx < len(classes):
+                            return classes[idx]
+                    # string match
+                    for c in classes:
+                        if str(c).lower() == str(src_raw).lower():
+                            return c
+                except Exception:
+                    pass
+        # fallback to src_model.classes_ if available
+        if src_model is not None and hasattr(src_model, 'classes_'):
+            try:
+                classes = list(src_model.classes_)
+                if isinstance(src_raw, (int, np.integer)):
+                    idx = int(src_raw)
+                    if 0 <= idx < len(classes):
+                        return classes[idx]
+                # else string repr
+                for c in classes:
+                    if str(c).lower() == str(src_raw).lower():
+                        return c
+            except Exception:
+                pass
+        # final fallback mapping
+        fallback = {0:'Vehicular Emission', 1:'Industrial Emission', 2:'Dust / Poor Dispersion', 3:'Low Pollution Source'}
+        try:
+            if isinstance(src_raw, (int, np.integer)):
+                return fallback.get(int(src_raw), str(src_raw))
+        except Exception:
+            pass
+        return str(src_raw)
 
     # run prediction
     try:
@@ -313,6 +399,10 @@ if predict_clicked:
             st.error("Pollution model not loaded. Put rf_pollution_likely.pkl in models/ and restart.")
         else:
             Xp = align_features(input_df, poll_model)
+            # debug: show the aligned dataframe used for model
+            with st.expander("Model input (aligned)", expanded=False):
+                st.dataframe(Xp, use_container_width=True)
+
             pred_raw = poll_model.predict(Xp)[0]
             try:
                 poll_yesno = 'Yes' if int(pred_raw) == 1 else 'No'
@@ -343,40 +433,7 @@ if predict_clicked:
                     Xs = align_features(input_df, src_model)
                     src_raw = src_model.predict(Xs)[0]
 
-                    # try LabelEncoder
-                    if le is not None:
-                        try:
-                            if isinstance(src_raw, (int, np.integer)):
-                                decoded_label = le.inverse_transform([int(src_raw)])[0]
-                            else:
-                                decoded_label = le.inverse_transform([str(src_raw)])[0]
-                        except Exception as e:
-                            decode_notes.append(f"LabelEncoder inverse failed: {e}")
-                            decoded_label = None
-
-                    # fallback to classes_
-                    if decoded_label is None and hasattr(src_model, 'classes_'):
-                        try:
-                            classes = list(src_model.classes_)
-                            if isinstance(src_raw, (int, np.integer)):
-                                idx = int(src_raw)
-                                if 0 <= idx < len(classes):
-                                    decoded_label = classes[idx]
-                                else:
-                                    decoded_label = str(src_raw)
-                            else:
-                                decoded_label = str(src_raw)
-                        except Exception as e:
-                            decode_notes.append(f"classes_ decode failed: {e}")
-                            decoded_label = None
-
-                    # final fallback mapping
-                    if decoded_label is None:
-                        fallback = {0:'Vehicular Emission', 1:'Industrial Emission', 2:'Dust / Poor Dispersion', 3:'Low Pollution Source'}
-                        try:
-                            decoded_label = fallback.get(int(src_raw), str(src_raw))
-                        except Exception:
-                            decoded_label = str(src_raw)
+                    decoded_label = safe_decode_label(src_raw, le, src_model)
 
                     st.subheader("Predicted Main Source")
                     st.markdown(f"<div style='font-size:16px;font-weight:700;color:#034d3a'>{decoded_label}</div>", unsafe_allow_html=True)
@@ -397,7 +454,7 @@ if predict_clicked:
             chosen_reason = None
             if decoded_label is not None:
                 for rlabel, ev in reasons:
-                    if rlabel.lower().split('/')[0].strip() in decoded_label.lower():
+                    if rlabel.lower().split('/')[0].strip() in str(decoded_label).lower():
                         chosen_reason = (rlabel, ev)
                         break
             if chosen_reason is None:
