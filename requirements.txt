@@ -1,6 +1,5 @@
-streamlit 
+streamlit
 pandas
 numpy
 joblib
-os
-traceback
+scikit-learn
